@@ -18,6 +18,7 @@ exports.handler = function(event, context) {
     }
     var email = originalOutputFilename.split('__')[0];
     var originalFilename = originalOutputFilename.split('__')[1] + '.' + originalOutputFilename.split('__')[2].split(".")[0] ;
+    console.log(originalFilename);
     if (outputBucket !== 'cc2019output') {
          context.fail('wrong bucket!!');
         
@@ -27,99 +28,73 @@ exports.handler = function(event, context) {
         Key: originalFilename 
     };
     
-    console.log(originalFilename);
-    s3.headObject(getParams, function (err, metadata) {  
-        if (err && err.code === 'NotFound') {  
-            context.fail('Wrong filename!');
+    // console.log(originalFilename);
+    // s3.headObject(getParams, function (err, metadata) {  
+    //     if (err && err.code === 'NotFound') {  
+    //         context.fail('Wrong filename!');
             
-          }
-    });
+    //       }
+    // });
     if (!email.match(/^[^@]+@[^@]+$/)) {
         console.log('Not sending: invalid email address');
         context.succeed(null, "Failed");
         
     } 
-    var params = {
-        Bucket: outputBucket,
-        Key: originalOutputFilename
-    };
     
+    var newOutputFilename = originalFilename.split('.')[0] + ".mp4";
+    console.log(newOutputFilename);
+    var copySource = "/" +outputBucket + "/" + originalOutputFilename;
+    console.log(copySource);
+    s3.copyObject({
+      Bucket: outputBucket, 
+      CopySource: copySource, 
+      Key: newOutputFilename
+     })
+      .promise()
+      .then(() => 
+        // Delete the old object
+        s3.deleteObject({
+          Bucket: outputBucket, 
+          Key: originalOutputFilename
+        }).promise()
+       )
+      // Error handling is left up to reader
+      .catch((e) => console.error(e));
+      
+      var params = {
+        Bucket: outputBucket,
+        Key: newOutputFilename
+    };
     var objectUrl = s3.getSignedUrl('getObject', params);
-  // //   console.log(objectUrl);
-  // //   const htmlBody = `
-  // //   <!DOCTYPE html>
-  // //   <html>
-  // //     <head>
-  // //     </head>
-  // //     <body>
-  // //       <p>Hi,</p>
-  // //       <br>
-  // //       <p> We have completed transcoding your video.  <b><a href="${objectUrl}" download="${originalOutputFilename}">Click here to download</a></b></p>
-  // //     </body>
-  // //   </html>
-  // // `;
-
-  // // // Create sendEmail params
-  // // const paramsEmail = {
-  // //   Destination: {
-  // //     ToAddresses: [email]
-  // //   },
-  // //   Message: {
-  // //     Body: {
-  // //       Html: {
-  // //         Charset: "UTF-8",
-  // //         Data: htmlBody
-  // //       },
-  // //     },
-  // //     Subject: {
-  // //       Charset: "UTF-8",
-  // //       Data: "Your file is ready to download"
-  // //     }
-  // //   },
-  // //   Source: "no-reply@easyvideotranscoder.tk"
-  // // };
-
-  // // // Create the promise and SES service object
-  // // const sendPromise = ses.sendEmail(paramsEmail).promise();
-
-  // // // Handle promise's fulfilled/rejected states
-  // //   sendPromise
-  // //       .then(data => {
-  // //         console.log(data.MessageId);
-  // //         context.done(null, "Success");
-  // //       })
-  // //       .catch(err => {
-  // //         console.error(err, err.stack);
-  // //         context.done(null, "Failed");
-  // //   });
-  var s3object = s3.getObject(params, function(error) {
+    
+    var s3object = s3.getObject(params, function(error) {
         if (error) {
             console.log(error);
             context.fail('file not found!');
         }
     }
-  
-  );
-  var mailOptions = {
+    
+    );
+    var mailOptions = {
       from: "no-reply@easyvideotranscoder.tk",
       subject: "Your file is ready to download",
-      html: `<p>Hi, We have completed transcoding your video.  <b><a href="${objectUrl}" download="${originalOutputFilename}">Click here to watch it online</a></b> or please download the attachment Thank you for using our service.</p>`,
+      html: `<p>Hi, We have completed transcoding your video.  <b><a href="${objectUrl}">Click here to watch it online</a></b> or please download the attachment Thank you for using our service.</p>`,
       to: email,
       attachments: [
           {
-              filename: originalOutputFilename,
+              filename: newOutputFilename,
               content: s3object.Body
           }
       ]
-  };
-  
-  console.log('Creating SES transporter');
-  // create Nodemailer SES transporter
-  var transporter = nodemailer.createTransport({
+    };
+    
+    console.log('Creating SES transporter');
+    // create Nodemailer SES transporter
+    var transporter = nodemailer.createTransport({
       SES: ses
-  });
-  // send email
-  transporter.sendMail(mailOptions, function(error) {
+    });
+    // send email
+    transporter.sendMail(mailOptions, function(error) {
         if (error) {
             console.log(error);
             context.fail("Unable to send email!");
